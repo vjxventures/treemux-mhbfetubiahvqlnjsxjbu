@@ -2,7 +2,9 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { Sparkles, Code2, Loader2 } from 'lucide-react';
+import { Sparkles, Code2, Loader2, Copy, CheckCheck, MessageSquare, Send } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 const LANGUAGE_OPTIONS = [
   { value: 'javascript', label: 'JavaScript' },
@@ -49,7 +51,64 @@ export default function CodeEditor() {
   const [language, setLanguage] = useState('javascript');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [showAskInput, setShowAskInput] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [isAsking, setIsAsking] = useState(false);
   const debounceTimer = useRef<NodeJS.Timeout | undefined>(undefined);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(analysis);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const askQuestion = async () => {
+    if (!question.trim() || !code.trim()) return;
+
+    setIsAsking(true);
+    setAnalysis('');
+    setShowAskInput(false);
+
+    try {
+      const response = await fetch('/api/ask', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ code, language, question }),
+      });
+
+      if (!response.ok) throw new Error('Question failed');
+
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        let buffer = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+
+          for (const line of lines) {
+            if (line.startsWith('0:')) {
+              const content = line.substring(2).replace(/^"|"$/g, '');
+              setAnalysis((prev) => prev + content);
+            }
+          }
+        }
+      }
+    } catch (error) {
+      setAnalysis('Error processing question. Please try again.');
+    } finally {
+      setIsAsking(false);
+      setQuestion('');
+    }
+  };
 
   const analyzeCode = async (currentCode: string) => {
     if (!currentCode.trim()) {
@@ -167,14 +226,67 @@ export default function CodeEditor() {
         <div className="bg-gradient-to-r from-purple-900 to-blue-900 px-4 py-3 border-b border-slate-700 flex items-center gap-2">
           <Sparkles className="w-5 h-5 text-yellow-300" />
           <h2 className="text-white font-semibold">AI Analysis</h2>
-          {isAnalyzing && <Loader2 className="w-4 h-4 text-blue-300 animate-spin ml-auto" />}
+          {(isAnalyzing || isAsking) && <Loader2 className="w-4 h-4 text-blue-300 animate-spin ml-auto" />}
+          {!isAnalyzing && !isAsking && (
+            <div className="ml-auto flex gap-2">
+              <button
+                onClick={() => setShowAskInput(!showAskInput)}
+                className="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm flex items-center gap-2 transition-colors"
+                title="Ask a question"
+              >
+                <MessageSquare className="w-4 h-4" />
+                Ask AI
+              </button>
+              {analysis && (
+                <button
+                  onClick={copyToClipboard}
+                  className="px-3 py-1 rounded bg-slate-700 hover:bg-slate-600 text-white text-sm flex items-center gap-2 transition-colors"
+                  title="Copy analysis"
+                >
+                  {copied ? (
+                    <>
+                      <CheckCheck className="w-4 h-4" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copy
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+          )}
         </div>
+        {showAskInput && (
+          <div className="px-4 py-3 bg-slate-900 border-b border-slate-700">
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={question}
+                onChange={(e) => setQuestion(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && askQuestion()}
+                placeholder="Ask a question about your code..."
+                className="flex-1 px-3 py-2 bg-slate-800 text-white rounded border border-slate-600 focus:outline-none focus:ring-2 focus:ring-purple-500"
+              />
+              <button
+                onClick={askQuestion}
+                disabled={!question.trim()}
+                className="px-4 py-2 rounded bg-purple-600 hover:bg-purple-700 disabled:bg-slate-700 disabled:cursor-not-allowed text-white flex items-center gap-2 transition-colors"
+              >
+                <Send className="w-4 h-4" />
+                Ask
+              </button>
+            </div>
+          </div>
+        )}
         <div className="h-[600px] overflow-y-auto p-6">
           {analysis ? (
-            <div className="prose prose-invert max-w-none">
-              <div className="text-gray-300 whitespace-pre-wrap leading-relaxed">
+            <div className="prose prose-invert max-w-none prose-headings:text-white prose-p:text-gray-300 prose-strong:text-white prose-code:text-purple-300 prose-code:bg-slate-900 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-pre:bg-slate-900 prose-pre:border prose-pre:border-slate-700">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {analysis}
-              </div>
+              </ReactMarkdown>
             </div>
           ) : (
             <div className="h-full flex items-center justify-center text-gray-500">
