@@ -32,6 +32,10 @@ export default function Home() {
           </div>
         </div>
         <CodeEditor />
+        <footer className="mt-12 text-center text-gray-400 text-sm pb-8">
+          <p>Built with Next.js, Monaco Editor, and Claude AI</p>
+          <p className="mt-2">TreeHacks 2026 Project</p>
+        </footer>
       </div>
     </main>
   );
